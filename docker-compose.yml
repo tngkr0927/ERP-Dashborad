@@ -24,6 +24,8 @@ services:
     environment:
       DATABASE_URL: "postgresql+asyncpg://erp_user:erp_pass@db:5432/erp_dashboard"
       DATABASE_URL_SYNC: "postgresql+psycopg2://erp_user:erp_pass@db:5432/erp_dashboard"
+      # .env 파일에 GEMINI_API_KEY=your_key_here 를 설정하세요.
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
     depends_on:
       db:
         condition: service_healthy

@@ -13,8 +13,9 @@ from app.database import Base, engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 서버 시작 시 테이블 자동 생성
+    # 서버 시작 시 기존 테이블 삭제 후 재생성 (스키마 변경 반영)
     async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
 
