@@ -101,7 +101,8 @@ async def upload_file(
 
     # NaN → None 변환 후 records 형식으로 변환
     df = df.where(df.notna(), None)
-    payload = df.to_dict(orient="records")
+    # numpy/pandas 타입 → Python 네이티브 타입 변환 (JSONB 직렬화 호환)
+    payload = json.loads(df.to_json(orient="records", force_ascii=False))
 
     record = RawDataLog(filename=filename, payload=payload)
     db.add(record)
