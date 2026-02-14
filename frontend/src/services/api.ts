@@ -50,9 +50,7 @@ export interface DashboardResult {
 export async function uploadFile(file: File): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  const res = await api.post<UploadResponse>("/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-  });
+  const res = await api.post<UploadResponse>("/upload", formData);
   return res.data;
 }
 
