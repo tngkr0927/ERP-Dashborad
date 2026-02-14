@@ -211,24 +211,59 @@ async def run_analysis(body: AnalyzeRequest, db: AsyncSession = Depends(get_db))
         genai.configure(api_key=settings.GEMINI_API_KEY)
         model = genai.GenerativeModel("gemini-2.5-flash")
 
-        # 데이터 미리보기 (토큰 절약을 위해 최대 50행)
-        data_preview = raw.payload[:50] if isinstance(raw.payload, list) else raw.payload
+        # 전체 데이터를 Pandas로 통계 요약 (토큰 절약 + 정확한 분석)
+        df = pd.DataFrame(raw.payload)
+        total_rows = len(df)
+        columns = list(df.columns)
+
+        # 숫자형 컬럼 통계
+        numeric_stats = {}
+        for col in df.select_dtypes(include=["number"]).columns:
+            numeric_stats[col] = {
+                "합계": round(float(df[col].sum()), 2),
+                "평균": round(float(df[col].mean()), 2),
+                "최소": round(float(df[col].min()), 2),
+                "최대": round(float(df[col].max()), 2),
+            }
+
+        # 문자형 컬럼별 고유값 분포 (상위 10개)
+        category_stats = {}
+        for col in df.select_dtypes(include=["object"]).columns:
+            vc = df[col].value_counts().head(10)
+            category_stats[col] = {str(k): int(v) for k, v in vc.items()}
+
+        # 샘플 데이터 (처음 5행)
+        sample_data = json.loads(df.head(5).to_json(orient="records", force_ascii=False))
+
+        data_summary = {
+            "총_행수": total_rows,
+            "컬럼목록": columns,
+            "숫자형_컬럼_통계": numeric_stats,
+            "문자형_컬럼_분포_상위10": category_stats,
+            "샘플_데이터_5행": sample_data,
+        }
 
         system_prompt = (
-            "너는 데이터 분석 전문가야. 주어진 데이터를 분석해서 반드시 아래 JSON 포맷으로만 답해줘.\n"
+            "너는 데이터 분석 전문가야. 아래 데이터의 통계 요약을 보고 전체 데이터를 분석해서 "
+            "반드시 아래 JSON 포맷으로만 답해줘.\n"
             "```json\n"
             '{\n'
-            '  "summary": "분석 요약 내용 (한국어, 3~5문장)",\n'
+            '  "summary": "전체 데이터에 대한 분석 요약 (한국어, 3~5문장, 구체적인 수치 포함)",\n'
             '  "chart_data": [\n'
             '    {"label": "항목명", "value": 숫자},\n'
             '    ...\n'
             '  ]\n'
             '}\n'
             "```\n"
+            "chart_data는 가장 의미 있는 비교 항목으로 5~10개 구성해줘.\n"
             "JSON 외에 다른 텍스트는 절대 포함하지 마."
         )
 
-        user_message = f"다음 데이터를 분석해줘.\n\n데이터:\n{json.dumps(data_preview, ensure_ascii=False, default=str)}"
+        user_message = (
+            f"다음은 총 {total_rows}행 데이터의 통계 요약이야. "
+            f"이걸 기반으로 전체 데이터를 분석해줘.\n\n"
+            f"통계 요약:\n{json.dumps(data_summary, ensure_ascii=False, default=str)}"
+        )
         if body.user_prompt:
             user_message += f"\n\n추가 지시사항: {body.user_prompt}"
 
