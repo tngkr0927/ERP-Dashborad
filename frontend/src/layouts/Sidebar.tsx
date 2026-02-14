@@ -2,6 +2,7 @@ const menuItems = [
   { label: "대시보드", href: "#" },
   { label: "데이터 업로드", href: "#upload" },
   { label: "분석 실행", href: "#analyze" },
+  { label: "데이터 관리", href: "#management" },
 ];
 
 export default function Sidebar() {

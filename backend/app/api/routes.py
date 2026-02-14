@@ -18,8 +18,9 @@ from typing import Any
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func as sa_func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.database import get_db
@@ -44,6 +45,7 @@ class RawDataItem(BaseModel):
     filename: str
     created_at: str
     row_count: int
+    has_analysis: bool
 
 
 class RawDataListResponse(BaseModel):
@@ -124,7 +126,11 @@ async def list_raw_data(
     db: AsyncSession = Depends(get_db),
 ):
     """저장된 원본 데이터 목록을 조회합니다. 기간 필터를 지원합니다."""
-    stmt = select(RawDataLog).order_by(RawDataLog.created_at.desc())
+    stmt = (
+        select(RawDataLog)
+        .options(selectinload(RawDataLog.analyses))
+        .order_by(RawDataLog.created_at.desc())
+    )
 
     # 기본값: 최근 30일
     if start_date:
@@ -150,6 +156,7 @@ async def list_raw_data(
             filename=r.filename,
             created_at=r.created_at.isoformat(),
             row_count=len(r.payload) if isinstance(r.payload, list) else 0,
+            has_analysis=len(r.analyses) > 0,
         )
         for r in rows
     ]

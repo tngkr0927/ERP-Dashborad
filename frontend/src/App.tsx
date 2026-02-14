@@ -3,13 +3,15 @@ import DashboardLayout from "./layouts/DashboardLayout";
 import DashboardPage from "./pages/DashboardPage";
 import UploadPage from "./pages/UploadPage";
 import AnalyzePage from "./pages/AnalyzePage";
+import DataManagementPage from "./pages/DataManagementPage";
 
-type Page = "dashboard" | "upload" | "analyze";
+type Page = "dashboard" | "upload" | "analyze" | "management";
 
 function getPageFromHash(): Page {
   const hash = window.location.hash.replace("#", "");
   if (hash === "upload") return "upload";
   if (hash === "analyze") return "analyze";
+  if (hash === "management") return "management";
   return "dashboard";
 }
 
@@ -27,6 +29,7 @@ export default function App() {
       {page === "dashboard" && <DashboardPage />}
       {page === "upload" && <UploadPage />}
       {page === "analyze" && <AnalyzePage />}
+      {page === "management" && <DataManagementPage />}
     </DashboardLayout>
   );
 }

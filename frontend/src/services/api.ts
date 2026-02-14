@@ -13,6 +13,7 @@ export interface RawDataItem {
   filename: string;
   created_at: string;
   row_count: number;
+  has_analysis: boolean;
 }
 
 export interface RawDataListResponse {
