@@ -209,7 +209,7 @@ async def run_analysis(body: AnalyzeRequest, db: AsyncSession = Depends(get_db))
         import google.generativeai as genai
 
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-2.0-flash")
 
         # 데이터 미리보기 (토큰 절약을 위해 최대 50행)
         data_preview = raw.payload[:50] if isinstance(raw.payload, list) else raw.payload
