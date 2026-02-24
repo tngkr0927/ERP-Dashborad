@@ -198,7 +198,7 @@ async def run_analysis(body: AnalyzeRequest, db: AsyncSession = Depends(get_db))
     if not raw:
         raise HTTPException(status_code=404, detail="원본 데이터를 찾을 수 없습니다.")
 
-    # 2. Gemini API 호출
+    # 2. Gemini API 호출 (청크 분할 방식 — 원본 데이터 전체를 Gemini에 전달)
     if not settings.GEMINI_API_KEY:
         raise HTTPException(
             status_code=500,
@@ -206,110 +206,20 @@ async def run_analysis(body: AnalyzeRequest, db: AsyncSession = Depends(get_db))
         )
 
     try:
-        import google.generativeai as genai
+        from app.services.gemini_chunk_analyzer import analyze_with_chunks
 
-        genai.configure(api_key=settings.GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.5-flash")
-
-        # Pandas로 전체 데이터의 상세 통계를 계산하여 전달
         df = pd.DataFrame(raw.payload)
-        total_rows = len(df)
-
-        # 숫자형 컬럼: 합계, 평균, 중앙값, 표준편차, 최소, 최대
-        numeric_stats = {}
-        for col in df.select_dtypes(include=["number"]).columns:
-            numeric_stats[col] = {
-                "합계": round(float(df[col].sum()), 2),
-                "평균": round(float(df[col].mean()), 2),
-                "중앙값": round(float(df[col].median()), 2),
-                "표준편차": round(float(df[col].std()), 2),
-                "최소": round(float(df[col].min()), 2),
-                "최대": round(float(df[col].max()), 2),
-            }
-
-        # 문자형 컬럼: 전체 고유값 분포
-        category_stats = {}
-        for col in df.select_dtypes(include=["object"]).columns:
-            vc = df[col].value_counts()
-            category_stats[col] = {
-                "고유값수": int(vc.nunique()) if hasattr(vc, 'nunique') else len(vc),
-                "분포": {str(k): int(v) for k, v in vc.head(20).items()},
-            }
-
-        # 숫자형 컬럼 간 상관관계 (있으면)
-        corr_info = {}
-        num_cols = df.select_dtypes(include=["number"]).columns.tolist()
-        if len(num_cols) >= 2:
-            corr = df[num_cols].corr()
-            for i, c1 in enumerate(num_cols):
-                for c2 in num_cols[i+1:]:
-                    val = round(float(corr.loc[c1, c2]), 3)
-                    if abs(val) > 0.3:
-                        corr_info[f"{c1} vs {c2}"] = val
-
-        # 문자형별 숫자형 그룹 통계 (핵심)
-        group_stats = {}
-        cat_cols = df.select_dtypes(include=["object"]).columns.tolist()
-        if cat_cols and num_cols:
-            main_cat = cat_cols[0]
-            main_num = num_cols[0]
-            grp = df.groupby(main_cat)[main_num].agg(["sum", "mean", "count"])
-            grp = grp.sort_values("sum", ascending=False).head(15)
-            group_stats[f"{main_cat}별_{main_num}"] = {
-                str(idx): {"합계": round(float(r["sum"]), 2), "평균": round(float(r["mean"]), 2), "건수": int(r["count"])}
-                for idx, r in grp.iterrows()
-            }
-
-        # 샘플 데이터
-        sample = json.loads(df.head(5).to_json(orient="records", force_ascii=False))
-
-        data_summary = json.dumps({
-            "총_행수": total_rows,
-            "컬럼목록": list(df.columns),
-            "숫자형_통계": numeric_stats,
-            "문자형_분포": category_stats,
-            "상관관계": corr_info,
-            "그룹별_통계": group_stats,
-            "샘플_5행": sample,
-        }, ensure_ascii=False, default=str)
-
-        system_prompt = (
-            "너는 데이터 분석 전문가야. 아래는 Pandas로 전체 데이터를 집계한 통계야. "
-            "이 통계는 전체 데이터를 100% 반영한 정확한 수치이니 그대로 활용해서 분석해줘. "
-            "반드시 아래 JSON 포맷으로만 답해줘.\n"
-            "```json\n"
-            '{\n'
-            '  "summary": "전체 데이터 분석 요약 (한국어, 5~7문장, 통계의 구체적 수치를 인용)",\n'
-            '  "chart_data": [\n'
-            '    {"label": "항목명", "value": 숫자},\n'
-            '    ...\n'
-            '  ]\n'
-            '}\n'
-            "```\n"
-            "chart_data는 그룹별_통계나 문자형_분포에서 가장 의미 있는 항목 5~10개로 구성해줘.\n"
-            "JSON 외에 다른 텍스트는 절대 포함하지 마."
+        result = await analyze_with_chunks(
+            df=df,
+            api_key=settings.GEMINI_API_KEY,
+            user_prompt=body.user_prompt,
         )
-
-        user_message = f"총 {total_rows}행 데이터의 전체 통계:\n\n{data_summary}"
-        if body.user_prompt:
-            user_message += f"\n\n추가 지시사항: {body.user_prompt}"
-
-        response = model.generate_content([system_prompt, user_message])
-        response_text = response.text.strip()
-
-        # JSON 블록 추출
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0].strip()
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0].strip()
-
-        result = json.loads(response_text)
-        summary = result.get("summary", "분석 요약을 생성하지 못했습니다.")
-        chart_data = result.get("chart_data", [])
+        summary = result["summary"]
+        chart_data = result["chart_data"]
 
     except json.JSONDecodeError:
-        logger.warning("Gemini 응답 JSON 파싱 실패, 원본 텍스트를 summary로 저장")
-        summary = response_text if 'response_text' in dir() else "분석 결과 파싱 실패"
+        logger.warning("Gemini 응답 JSON 파싱 실패")
+        summary = "분석 결과 파싱 실패"
         chart_data = []
     except Exception as e:
         logger.error(f"Gemini API 호출 실패: {e}")
